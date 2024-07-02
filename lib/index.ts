@@ -9,6 +9,8 @@ import type {
   TypedEventBroadcaster,
 } from "./typed-events";
 
+import type {Redis} from "ioredis";
+
 const debug = debugModule("socket.io-emitter");
 
 const UID = "emitter";
@@ -249,7 +251,7 @@ export const RESERVED_EVENTS: ReadonlySet<string | Symbol> = new Set(<const>[
 export class BroadcastOperator<EmitEvents extends EventsMap>
   implements TypedEventBroadcaster<EmitEvents> {
   constructor(
-    private readonly redisClient: any,
+    private readonly redisClient: Redis,
     private readonly broadcastOptions: BroadcastOptions,
     private readonly rooms: Set<string> = new Set<string>(),
     private readonly exceptRooms: Set<string> = new Set<string>(),
@@ -389,6 +391,50 @@ export class BroadcastOperator<EmitEvents extends EventsMap>
     this.redisClient.publish(channel, msg);
 
     return true;
+  }
+
+
+  /**
+   * Emits to all clients.
+   *
+   * @return Always true
+   * @public
+   */
+  public emitAsync<Ev extends EventNames<EmitEvents>>(
+      ev: Ev,
+      ...args: EventParams<EmitEvents, Ev>
+  ) {
+    if (RESERVED_EVENTS.has(ev)) {
+      throw new Error(`"${ev}" is a reserved event name`);
+    }
+
+    // set up packet object
+    const data = [ev, ...args];
+    const packet = {
+      type: PacketType.EVENT,
+      data: data,
+      nsp: this.broadcastOptions.nsp,
+    };
+
+    const opts = {
+      rooms: [...this.rooms],
+      flags: this.flags,
+      except: [...this.exceptRooms],
+    };
+
+    const msg = this.broadcastOptions.parser.encode([UID, packet, opts]);
+    let channel = this.broadcastOptions.broadcastChannel;
+    if (this.rooms && this.rooms.size === 1) {
+      channel += this.rooms.keys().next().value + "#";
+    }
+
+    debug("publishing message to channel %s", channel);
+
+    return new Promise((resolve, reject) => {
+      this.redisClient.publish(channel, msg, (err) => {
+        return err ? reject(err) : resolve(true);
+      });
+    })
   }
 
   /**
