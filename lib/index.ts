@@ -400,7 +400,7 @@ export class BroadcastOperator<EmitEvents extends EventsMap>
    * @return Always true
    * @public
    */
-  public emitAsync<Ev extends EventNames<EmitEvents>>(
+  public async emitAsync<Ev extends EventNames<EmitEvents>>(
       ev: Ev,
       ...args: EventParams<EmitEvents, Ev>
   ) {
@@ -430,11 +430,10 @@ export class BroadcastOperator<EmitEvents extends EventsMap>
 
     debug("publishing message to channel %s", channel);
 
-    return new Promise((resolve, reject) => {
-      this.redisClient.publish(channel, msg, (err) => {
-        return err ? reject(err) : resolve(true);
-      });
-    })
+    await this.redisClient.publish(channel, msg);
+
+    return true
+
   }
 
   /**
